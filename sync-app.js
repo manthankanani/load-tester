@@ -30,6 +30,12 @@ function validateInputs(url, totalRequests, timeWindowSeconds) {
   }
 }
 
+// Function to format timestamp
+function formatTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    return date.toISOString().replace('T', ' ').substring(0, 19);
+  }
+
 async function loadTest(url, totalRequests, timeWindowSeconds) {
   // Calculate requests per second to distribute evenly
   const requestsPerSecond = Math.ceil(totalRequests / timeWindowSeconds);
@@ -52,6 +58,15 @@ async function loadTest(url, totalRequests, timeWindowSeconds) {
   const requestPromises = Array.from({ length: totalRequests }, (_, index) => {
     return throttleRequests(async () => {
       const requestStartTime = Date.now(); // Track start time for this request
+
+      // Record first and last query start times
+      if (index === 0) {
+        results.firstQueryStartTime = requestStartTime;
+      }
+      if (index === totalRequests - 1) {
+        results.lastQueryStartTime = requestStartTime;
+      }
+
       let responseData = {
         requestNumber: index + 1,
         timeMs: 0,
@@ -120,14 +135,6 @@ async function runTest() {
 
     const result = await loadTest(url, totalRequests, timeWindowSeconds);
 
-    // Display summary
-    console.log('\nLoad Test Summary:');
-    console.log(`Total Requests Sent: ${result.totalRequests}`);
-    console.log(`Time Window: ${result.timeWindowSeconds} seconds`);
-    console.log(`Successful Requests: ${result.successfulRequests}`);
-    console.log(`Failed Requests: ${result.failedRequests}`);
-    console.log(`Total Time Taken: ${result.totalTimeTakenMs} ms`);
-
     // Prepare data for tabular output
     const tableData = result.responses.map((response) => ({
       'Request #': response.requestNumber,
@@ -139,6 +146,23 @@ async function runTest() {
     // Display tabular results
     console.log('\nTabular Results:');
     console.table(tableData);
+
+    // Calculate additional metrics
+    const errorRate = ((result.failedRequests / result.totalRequests) * 100).toFixed(2);
+    const averageResponseTimeMs = result.responses.length > 0
+      ? (result.responses.reduce((sum, res) => sum + res.timeMs, 0) / result.responses.length).toFixed(2)
+      : 0;
+
+    // Display summary
+    console.log('\nLoad Test Summary:');
+    console.log(`Total Requests Sent: ${result.totalRequests}`);
+    console.log(`Time Window: ${result.timeWindowSeconds} seconds`);
+    console.log(`First Query Start Time: ${formatTimestamp(result.firstQueryStartTime)}`);
+    console.log(`Last Query Start Time: ${formatTimestamp(result.lastQueryStartTime)}`);
+    console.log(`Successful Requests: ${result.successfulRequests}/${result.totalRequests}`);
+    console.log(`Failed Requests: ${result.failedRequests}`);
+    console.log(`Error Rate: ${errorRate}%`);
+    console.log(`Average Response Time: ${averageResponseTimeMs}ms`);
   } catch (error) {
     console.error('Error running load test:', error.message);
   } finally {
