@@ -34,7 +34,20 @@ function validateInputs(url, totalRequests, timeWindowSeconds) {
 function formatTimestamp(timestamp) {
     const date = new Date(timestamp);
     return date.toISOString().replace('T', ' ').substring(0, 19);
+}
+
+// Function to calculate response size
+function getResponseSize(response) {
+  // Use Content-Length header if available
+  if (response && response.headers && response.headers['content-length']) {
+    return parseInt(response.headers['content-length'], 10);
   }
+  // Fallback: estimate size based on response data
+  if (response && response.data) {
+    return Buffer.byteLength(JSON.stringify(response.data), 'utf8');
+  }
+  return 0;
+}
 
 async function loadTest(url, totalRequests, timeWindowSeconds) {
   // Calculate requests per second to distribute evenly
@@ -48,7 +61,10 @@ async function loadTest(url, totalRequests, timeWindowSeconds) {
     successfulRequests: 0,
     failedRequests: 0,
     responses: [],
-    totalTimeTakenMs: 0
+    totalTimeTakenMs: 0,
+    firstQueryStartTime: null,
+    lastQueryStartTime: null,
+    totalResponseSizeBytes: 0
   };
 
   // Start time for the entire test
@@ -72,30 +88,36 @@ async function loadTest(url, totalRequests, timeWindowSeconds) {
         timeMs: 0,
         status: 'N/A',
         success: false,
+        sizeBytes: 0,
         error: null
       };
 
       try {
         const response = await axios.get(url, {
-          timeout: 5000 // 5-second timeout
+          timeout: 10000 // 5-second timeout
         });
         responseData.timeMs = Date.now() - requestStartTime;
         responseData.status = response.status;
         responseData.success = true;
+        responseData.sizeBytes = getResponseSize(response);
         results.successfulRequests++;
+        results.totalResponseSizeBytes += responseData.sizeBytes;
       } catch (error) {
         responseData.timeMs = Date.now() - requestStartTime;
         responseData.status = error.response ? error.response.status : 'N/A';
         responseData.error = error.message;
+        responseData.sizeBytes = error.response ? getResponseSize(error.response) : 0;
         results.failedRequests++;
+        results.totalResponseSizeBytes += responseData.sizeBytes;
       }
 
       // Log the result in real-time
       console.log(
         `Request #${responseData.requestNumber}: ` +
         `Time: ${responseData.timeMs}ms, ` +
+        `Size=${responseData.sizeBytes} bytes, ` +
         `Status=${responseData.status}, ` +
-        `Success=${responseData.success}` +
+        `Success=${responseData.success} ` +
         (responseData.error ? `, Error=${responseData.error}` : '')
       );
 
@@ -139,8 +161,9 @@ async function runTest() {
     const tableData = result.responses.map((response) => ({
       'Request #': response.requestNumber,
       'Time (ms)': response.timeMs,
+      'Size (bytes)': response.sizeBytes,
       'Status': response.status,
-      'Success': response.success
+      'Success': response.success,
     }));
 
     // Display tabular results
@@ -152,6 +175,9 @@ async function runTest() {
     const averageResponseTimeMs = result.responses.length > 0
       ? (result.responses.reduce((sum, res) => sum + res.timeMs, 0) / result.responses.length).toFixed(2)
       : 0;
+    const totalResponseSizeMB = (result.totalResponseSizeBytes / (1024 * 1024)).toFixed(2);
+    const totalTimeSeconds = result.totalTimeTakenMs / 1000;
+    const mbps = totalTimeSeconds > 0 ? (totalResponseSizeMB / totalTimeSeconds).toFixed(2) : 0;
 
     // Display summary
     console.log('\nLoad Test Summary:');
@@ -163,6 +189,8 @@ async function runTest() {
     console.log(`Failed Requests: ${result.failedRequests}`);
     console.log(`Error Rate: ${errorRate}%`);
     console.log(`Average Response Time: ${averageResponseTimeMs}ms`);
+    console.log(`Total Response Size: ${result.totalResponseSizeBytes} bytes (${totalResponseSizeMB} MB)`);
+    console.log(`Throughput: ${mbps} MB/S`);
   } catch (error) {
     console.error('Error running load test:', error.message);
   } finally {
