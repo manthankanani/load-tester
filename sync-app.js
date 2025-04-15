@@ -94,7 +94,7 @@ async function loadTest(url, totalRequests, timeWindowSeconds) {
 
       try {
         const response = await axios.get(url, {
-          timeout: 10000 // 5-second timeout
+          timeout: 50000 // 50-second timeout
         });
         responseData.timeMs = Date.now() - requestStartTime;
         responseData.status = response.status;
